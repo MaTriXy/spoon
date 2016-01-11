@@ -100,12 +100,13 @@ final class HtmlUtils {
 
   /** Convert a method name from {@code testThisThing_DoesThat} to "This Thing, Does That". */
   static String prettifyMethodName(String methodName) {
-    if (!methodName.startsWith("test")) {
-      throw new IllegalArgumentException(
-          "Method name '" + methodName + "' does not start with 'test'.");
+    if (methodName.startsWith("test")) {
+      methodName = methodName.substring(4);
+    } else if (Character.isLowerCase(methodName.charAt(0))) {
+      methodName = Character.toUpperCase(methodName.charAt(0)) + methodName.substring(1);
     }
     StringBuilder pretty = new StringBuilder();
-    String[] parts = methodName.substring(4).split("_");
+    String[] parts = methodName.split("_");
     for (String part : parts) {
       if ("".equals(part.trim())) {
         continue; // Skip empty parts.
@@ -184,6 +185,10 @@ final class HtmlUtils {
     return new Screenshot(relativePath, caption);
   }
 
+  public static HtmlUtils.SavedFile getFile(File file, File output) {
+    return new SavedFile(createRelativeUri(file, output), file.getName());
+  }
+
   /** Parse the string representation of an exception to a {@link ExceptionInfo} instance. */
   static ExceptionInfo processStackTrace(StackTrace exception) {
     if (exception == null) {
@@ -234,6 +239,19 @@ final class HtmlUtils {
       this.id = ID.getAndIncrement();
       this.path = path;
       this.caption = caption;
+    }
+  }
+
+  static final class SavedFile {
+    private static final AtomicLong ID = new AtomicLong(0);
+    private final long id;
+    public final String path;
+    public final String name;
+
+    SavedFile(String path, String name) {
+      this.id = ID.incrementAndGet();
+      this.path = path;
+      this.name = name;
     }
   }
 

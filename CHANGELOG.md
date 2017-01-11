@@ -1,6 +1,92 @@
 Change Log
 ==========
 
+Version 1.7.0 *(2016-09-12)*
+----------------------------
+
+* Fix: upgraded jacoco to fix code coverage merging
+* Fix: escape HTML in exception titles
+* Fix: allow unexpected exception format to continue parsing
+* Fix: eagerly blow up if view is 0x0
+* Fix: show install exceptions in the results output
+
+Version 1.6.4 *(2016-08-09)*
+----------------------------
+
+* Fix: one more double-marking tweak
+
+Version 1.6.3 *(2016-08-08)*
+----------------------------
+
+* Fix: allow double-marking failure/error 
+* New: skipDevice flag to allow excluding certain devices
+
+Version 1.6.2 *(2016-07-26)*
+----------------------------
+
+* Fix: empty device model
+
+Version 1.6.1 *(2016-07-13)*
+----------------------------
+
+* Fix: issues with images not showing up in output
+
+Version 1.6.0 *(2016-07-11)*
+----------------------------
+
+* New: --grant-all flag to grant permissions on M+
+
+Version 1.5.7 *(2016-06-29)*
+----------------------------
+
+* Fix: hopefully no more issues reading logcat
+
+Version 1.5.6 *(2016-06-15)*
+----------------------------
+
+* Fix: better "failure" state semantics
+
+Version 1.5.5 *(2016-06-15)*
+----------------------------
+
+* Fix: code coverage storage on actual devices
+
+Version 1.5.4 *(2016-05-31)*
+----------------------------
+
+* New: code coverage is merged across all sharded devices
+
+Version 1.5.3 *(2016-05-09)*
+----------------------------
+
+* Fix: only run on devices >= minSdkVersion
+
+Version 1.5.2 *(2016-04-28)*
+----------------------------
+
+* Fix: sharded test output consolidation
+
+Version 1.5.1 *(2016-04-27)*
+----------------------------
+
+* Fix: shard index bugs
+
+Version 1.5.0 *(2016-04-26)*
+----------------------------
+
+* New: code coverage support
+
+Version 1.4.0 *(2016-04-11)*
+----------------------------
+
+* New: sharding tests across multiple devices
+
+Version 1.3.2 *(2016-02-09)*
+----------------------------
+
+* Fix: --e options are now split correctly
+* Fix: default timeout is now set
+
 Version 1.3.1 *(2016-01-05)*
 ----------------------------
 

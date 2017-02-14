@@ -2,10 +2,10 @@ package com.squareup.spoon;
 
 import org.junit.Test;
 
+import static com.google.common.truth.Truth.assertThat;
 import static com.squareup.spoon.SpoonRunner.parseOverallSuccess;
-import static org.fest.assertions.api.Assertions.assertThat;
 
-public class SpoonRunnerTest {
+public final class SpoonRunnerTest {
   @Test public void parsingSuccess() {
     SpoonSummary summary;
     DeviceTest device = new DeviceTest("foo", "bar");
@@ -13,6 +13,8 @@ public class SpoonRunnerTest {
     // PASS: No devices attached.
     summary = new SpoonSummary.Builder() //
         .setTitle("test") //
+        .start()
+        .end()
         .build(); //
     assertThat(parseOverallSuccess(summary)).isTrue();
 
@@ -40,18 +42,18 @@ public class SpoonRunnerTest {
 
     // FAIL: Top-level exception during test run.
     summary = new SpoonSummary.Builder() //
-            .setTitle("test") //
-            .start() //
-            .addResult("123", new DeviceResult.Builder() //
-                    .addException(new RuntimeException())
-                    .startTests() //
-                    .addTestResultBuilder(device, new DeviceTestResult.Builder() //
-                            .startTest() //
-                            .endTest()) //
-                    .endTests() //
-                    .build()) //
-            .end() //
-            .build(); //
+        .setTitle("test") //
+        .start() //
+        .addResult("123", new DeviceResult.Builder() //
+            .addException(new RuntimeException()) //
+            .startTests() //
+            .addTestResultBuilder(device, new DeviceTestResult.Builder() //
+                .startTest() //
+                .endTest()) //
+            .endTests() //
+            .build()) //
+        .end() //
+        .build(); //
     assertThat(parseOverallSuccess(summary)).isFalse();
 
     // FAIL: No tests run.
@@ -74,7 +76,7 @@ public class SpoonRunnerTest {
             .startTests() //
             .addTestResultBuilder(device, new DeviceTestResult.Builder() //
                 .startTest() //
-                .markTestAsFailed("java.fake.Exception: Failed!")
+                .markTestAsFailed("java.fake.Exception: Failed!") //
                 .endTest()) //
             .build()) //
         .end() //
@@ -83,17 +85,17 @@ public class SpoonRunnerTest {
 
     // FAIL: Test error with special HTML characters in the exception message
     summary = new SpoonSummary.Builder() //
-            .setTitle("test") //
-            .start() //
-            .addResult("123", new DeviceResult.Builder() //
-                    .startTests() //
-                    .addTestResultBuilder(device, new DeviceTestResult.Builder() //
-                            .startTest() //
-                            .markTestAsFailed("java.fake.Exception: Expected <SUCCESS> but was <FAILED>!")
-                            .endTest()) //
-                    .build()) //
-            .end() //
-            .build(); //
+        .setTitle("test") //
+        .start() //
+        .addResult("123", new DeviceResult.Builder() //
+            .startTests() //
+            .addTestResultBuilder(device, new DeviceTestResult.Builder() //
+                .startTest() //
+                .markTestAsFailed("java.fake.Exception: Expected <SUCCESS> but was <FAILED>!")
+                .endTest()) //
+            .build()) //
+        .end() //
+        .build(); //
     assertThat(parseOverallSuccess(summary)).isFalse();
 
     // PASS: Test success.

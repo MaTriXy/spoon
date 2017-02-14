@@ -7,14 +7,14 @@ import java.io.File;
 import java.io.IOException;
 import java.text.Format;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringEscapeUtils;
 
-import static com.squareup.spoon.DeviceTestResult.SCREENSHOT_SEPARATOR;
+import static com.squareup.spoon.internal.Constants.NAME_SEPARATOR;
+import static java.util.stream.Collectors.toList;
 
 /** Utilities for representing the execution in HTML. */
 final class HtmlUtils {
@@ -134,7 +134,7 @@ final class HtmlUtils {
     imageName = FilenameUtils.removeExtension(imageName);
 
     // Remove the timestamp information.
-    imageName = imageName.split(SCREENSHOT_SEPARATOR, 2)[1];
+    imageName = imageName.split(NAME_SEPARATOR, 2)[1];
 
     StringBuilder pretty = new StringBuilder();
     for (String part : imageName.replace('_', '-').split("-")) {
@@ -200,10 +200,10 @@ final class HtmlUtils {
     // is not in an expected format).  This replacement needs to be done after any HTML escaping.
     message = message.replace("\n", "<br/>");
 
-    List<String> lines = new ArrayList<String>();
-    for (StackTrace.Element element : exception.getElements()) {
-      lines.add("&nbsp;&nbsp;&nbsp;&nbsp;at " + element.toString());
-    }
+    List<String> lines = exception.getElements()
+        .stream()
+        .map(element -> "&nbsp;&nbsp;&nbsp;&nbsp;at " + element.toString())
+        .collect(toList());
     while (exception.getCause() != null) {
       exception = exception.getCause();
       String causeMessage = StringEscapeUtils.escapeHtml4(exception.toString());

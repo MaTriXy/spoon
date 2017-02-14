@@ -10,14 +10,11 @@ import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.Collections.unmodifiableList;
 import static com.squareup.spoon.SpoonLogger.logError;
+import static java.util.Collections.unmodifiableList;
 
 /** Represents the result of a single test method on a single device. */
 public final class DeviceTestResult {
-  /** Separator between screenshot timestamp and tag. */
-  public static final String SCREENSHOT_SEPARATOR = Spoon.NAME_SEPARATOR;
-
   public enum Status {
     PASS, FAIL
   }
@@ -35,10 +32,10 @@ public final class DeviceTestResult {
     this.status = status;
     this.exception = exception;
     this.duration = duration;
-    this.screenshots = unmodifiableList(new ArrayList<File>(screenshots));
-    this.files = unmodifiableList(new ArrayList<File>(files));
+    this.screenshots = unmodifiableList(new ArrayList<>(screenshots));
+    this.files = unmodifiableList(new ArrayList<>(files));
     this.animatedGif = animatedGif;
-    this.log = unmodifiableList(new ArrayList<LogCatMessage>(log));
+    this.log = unmodifiableList(new ArrayList<>(log));
   }
 
   /** Execution status. */
@@ -76,8 +73,8 @@ public final class DeviceTestResult {
   }
 
   public static class Builder {
-    private final List<File> screenshots = new ArrayList<File>();
-    private final List<File> files = new ArrayList<File>();
+    private final List<File> screenshots = new ArrayList<>();
+    private final List<File> files = new ArrayList<>();
     private Status status = Status.PASS;
     private StackTrace exception;
     private long start;

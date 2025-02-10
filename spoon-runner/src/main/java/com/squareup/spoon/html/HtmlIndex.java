@@ -25,7 +25,7 @@ final class HtmlIndex {
       Map<DeviceTest, DeviceTestResult> testResults = result.getValue().getTestResults();
       testsRun += testResults.size();
       for (Map.Entry<DeviceTest, DeviceTestResult> entry : testResults.entrySet()) {
-        if (entry.getValue().getStatus() == Status.PASS) {
+        if (entry.getValue().getStatus() != Status.FAIL) {
           totalSuccess += 1;
         }
       }
@@ -117,10 +117,9 @@ final class HtmlIndex {
       String className = test.getClassName();
       String methodName = test.getMethodName();
       String classSimpleName = HtmlUtils.getClassSimpleName(className);
-      String prettyMethodName = HtmlUtils.prettifyMethodName(methodName);
       String testId = HtmlUtils.testClassAndMethodToId(className, methodName);
       String status = HtmlUtils.getStatusCssClass(testResult);
-      return new TestResult(serial, classSimpleName, prettyMethodName, testId, status);
+      return new TestResult(serial, classSimpleName, methodName, testId, status);
     }
 
     public final String serial;

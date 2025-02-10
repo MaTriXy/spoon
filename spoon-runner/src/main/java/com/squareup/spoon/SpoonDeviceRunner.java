@@ -9,23 +9,26 @@ import com.android.ddmlib.logcat.LogCatMessage;
 import com.android.ddmlib.testrunner.IRemoteAndroidTestRunner;
 import com.android.ddmlib.testrunner.ITestRunListener;
 import com.android.ddmlib.testrunner.RemoteAndroidTestRunner;
+import com.android.ddmlib.testrunner.TestIdentifier;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimap;
-import com.squareup.spoon.adapters.TestIdentifierAdapter;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.TrueFileFilter;
+
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.TrueFileFilter;
+import java.util.concurrent.TimeUnit;
 
 import static com.android.ddmlib.FileListingService.FileEntry;
 import static com.android.ddmlib.SyncService.getNullProgressMonitor;
@@ -33,17 +36,15 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.squareup.spoon.SpoonLogger.logDebug;
 import static com.squareup.spoon.SpoonLogger.logError;
 import static com.squareup.spoon.SpoonLogger.logInfo;
-import static com.squareup.spoon.SpoonUtils.GSON;
 import static com.squareup.spoon.SpoonUtils.createAnimatedGif;
 import static com.squareup.spoon.SpoonUtils.obtainDirectoryFileEntry;
 import static com.squareup.spoon.SpoonUtils.obtainRealDevice;
 import static com.squareup.spoon.internal.Constants.SPOON_FILES;
 import static com.squareup.spoon.internal.Constants.SPOON_SCREENSHOTS;
+import static java.util.Collections.emptyMap;
 
 /** Represents a single device and the test configuration to be executed. */
 public final class SpoonDeviceRunner {
-  private static final String FILE_EXECUTION = "execution.json";
-  private static final String FILE_RESULT = "result.json";
   private static final String DEVICE_SCREENSHOT_DIR = "app_" + SPOON_SCREENSHOTS;
   private static final String DEVICE_FILE_DIR = "app_" + SPOON_FILES;
   private static final String[] DEVICE_DIRS = {DEVICE_SCREENSHOT_DIR, DEVICE_FILE_DIR};
@@ -54,16 +55,15 @@ public final class SpoonDeviceRunner {
   static final String COVERAGE_FILE = "coverage.ec";
   static final String COVERAGE_DIR = "coverage";
 
-  private final File sdk;
-  private final File apk;
   private final File testApk;
+  private final List<File> otherApks;
   private final String serial;
   private final int shardIndex;
   private final int numShards;
   private final boolean debug;
   private final boolean noAnimations;
-  private final int adbTimeout;
-  private final List<String> instrumentationArgs;
+  private final Duration adbTimeout;
+  private final ImmutableMap<String, String> instrumentationArgs;
   private final String className;
   private final String methodName;
   private final IRemoteAndroidTestRunner.TestSize testSize;
@@ -72,50 +72,50 @@ public final class SpoonDeviceRunner {
   private final File imageDir;
   private final File coverageDir;
   private final File fileDir;
-  private final String classpath;
   private final SpoonInstrumentationInfo instrumentationInfo;
-  private boolean codeCoverage;
+  private final boolean codeCoverage;
+  private final boolean singleInstrumentationCall;
   private final List<ITestRunListener> testRunListeners;
   private final boolean grantAll;
+  private final boolean clearAppDataBeforeEachTest;
 
   /**
    * Create a test runner for a single device.
    *
-   * @param sdk Path to the local Android SDK directory.
-   * @param apk Path to application APK.
-   * @param testApk Path to test application APK.
+   * @param testApk Path to test APK.
+   * @param otherApks Paths to additional APKs.
    * @param output Path to output directory.
    * @param serial Device to run the test on.
    * @param debug Whether or not debug logging is enabled.
    * @param adbTimeout time in ms for longest test execution
-   * @param classpath Custom JVM classpath or {@code null}.
    * @param instrumentationInfo Test apk manifest information.
    * @param className Test class name to run or {@code null} to run all tests.
    * @param methodName Test method name to run or {@code null} to run all tests.  Must also pass
    * {@code className}.
    * @param testRunListeners Additional TestRunListener or empty list.
    */
-  SpoonDeviceRunner(File sdk, File apk, File testApk, File output, String serial, int shardIndex,
-      int numShards, boolean debug, boolean noAnimations, int adbTimeout, String classpath,
-      SpoonInstrumentationInfo instrumentationInfo, List<String> instrumentationArgs,
+  SpoonDeviceRunner(File testApk, List<File> otherApks, File output, String serial, int shardIndex,
+      int numShards, boolean debug, boolean noAnimations, Duration adbTimeout,
+      SpoonInstrumentationInfo instrumentationInfo, Map<String, String> instrumentationArgs,
       String className, String methodName, IRemoteAndroidTestRunner.TestSize testSize,
-      List<ITestRunListener> testRunListeners, boolean codeCoverage, boolean grantAll) {
-    this.sdk = sdk;
-    this.apk = apk;
+      List<ITestRunListener> testRunListeners, boolean codeCoverage, boolean grantAll,
+      boolean singleInstrumentationCall, boolean clearAppDataBeforeEachTest) {
     this.testApk = testApk;
+    this.otherApks = otherApks;
     this.serial = serial;
     this.shardIndex = shardIndex;
     this.numShards = numShards;
     this.debug = debug;
     this.noAnimations = noAnimations;
     this.adbTimeout = adbTimeout;
-    this.instrumentationArgs = instrumentationArgs;
+    this.instrumentationArgs = ImmutableMap.copyOf(instrumentationArgs != null
+        ? instrumentationArgs : Collections.emptyMap());
     this.className = className;
     this.methodName = methodName;
     this.testSize = testSize;
-    this.classpath = classpath;
     this.instrumentationInfo = instrumentationInfo;
     this.codeCoverage = codeCoverage;
+    this.singleInstrumentationCall = singleInstrumentationCall;
     serial = SpoonUtils.sanitizeSerial(serial);
     this.work = FileUtils.getFile(output, TEMP_DIR, serial);
     this.junitReport = FileUtils.getFile(output, JUNIT_DIR, serial + ".xml");
@@ -124,43 +124,15 @@ public final class SpoonDeviceRunner {
     this.coverageDir = FileUtils.getFile(output, COVERAGE_DIR, serial);
     this.testRunListeners = testRunListeners;
     this.grantAll = grantAll;
-  }
-
-  /** Serialize to disk and start {@link #main(String...)} in another process. */
-  public DeviceResult runInNewProcess() throws IOException, InterruptedException {
-    logDebug(debug, "[%s]", serial);
-
-    // Create the output directory.
-    work.mkdirs();
-
-    // Write our configuration to a file in the output directory.
-    FileWriter executionWriter = new FileWriter(new File(work, FILE_EXECUTION));
-    GSON.toJson(this, executionWriter);
-    executionWriter.close();
-
-    // Kick off a new process to interface with ADB and perform the real execution.
-    String name = SpoonDeviceRunner.class.getName();
-    Process process = new ProcessBuilder("java", "-Djava.awt.headless=true", "-cp", classpath, name,
-        work.getAbsolutePath()).start();
-    printStream(process.getInputStream(), "STDOUT");
-    printStream(process.getErrorStream(), "STDERR");
-
-    final int exitCode = process.waitFor();
-    logDebug(debug, "Process.waitFor() finished for [%s] with exitCode %d", serial, exitCode);
-
-    // Read the result from a file in the output directory.
-    FileReader resultFile = new FileReader(new File(work, FILE_RESULT));
-    DeviceResult result = GSON.fromJson(resultFile, DeviceResult.class);
-    resultFile.close();
-
-    return result;
+    this.clearAppDataBeforeEachTest = clearAppDataBeforeEachTest;
   }
 
   private void printStream(InputStream stream, String tag) throws IOException {
-    BufferedReader stdout = new BufferedReader(new InputStreamReader(stream));
-    String s;
-    while ((s = stdout.readLine()) != null) {
-      logDebug(debug, "[%s] %s %s", serial, tag, s);
+    try (BufferedReader stdout = new BufferedReader(new InputStreamReader(stream))) {
+      String s;
+      while ((s = stdout.readLine()) != null) {
+        logDebug(debug, "[%s] %s %s", serial, tag, s);
+      }
     }
   }
 
@@ -168,10 +140,8 @@ public final class SpoonDeviceRunner {
   public DeviceResult run(AndroidDebugBridge adb) {
     String testPackage = instrumentationInfo.getInstrumentationPackage();
     String testRunner = instrumentationInfo.getTestRunnerClass();
-    TestIdentifierAdapter testIdentifierAdapter = TestIdentifierAdapter.fromTestRunner(testRunner);
 
     logDebug(debug, "InstrumentationInfo: [%s]", instrumentationInfo);
-
     if (debug) {
       SpoonUtils.setDdmlibInternalLoggingLevel();
     }
@@ -186,108 +156,118 @@ public final class SpoonDeviceRunner {
     result.setDeviceDetails(deviceDetails);
     logDebug(debug, "[%s] setDeviceDetails %s", serial, deviceDetails);
 
-    DdmPreferences.setTimeOut(adbTimeout);
+    DdmPreferences.setTimeOut((int) adbTimeout.toMillis());
 
     // Now install the main application and the instrumentation application.
-    try {
-      String extraArgument = "";
-      if (grantAll && deviceDetails.getApiLevel() >= DeviceDetails.MARSHMALLOW_API_LEVEL) {
-        extraArgument = "-g";
+    for (File otherApk : otherApks) {
+      try {
+        String extraArgument = getGrantAllExtraArgument(deviceDetails);
+        device.installPackage(otherApk.getAbsolutePath(), true, extraArgument);
+      } catch (InstallException e) {
+        logInfo("InstallException while install other apk on device [%s]", serial);
+        e.printStackTrace(System.out);
+        return result.markInstallAsFailed("Unable to install other APK.").addException(e).build();
       }
-      device.installPackage(apk.getAbsolutePath(), true, extraArgument);
-    } catch (InstallException e) {
-      logInfo("InstallException while install app apk on device [%s]", serial);
-      e.printStackTrace(System.out);
-      return result.markInstallAsFailed(
-              "Unable to install application APK.").addException(e).build();
     }
     try {
-      device.installPackage(testApk.getAbsolutePath(), true);
+      String extraArgument = getGrantAllExtraArgument(deviceDetails);
+      device.installPackage(testApk.getAbsolutePath(), true, extraArgument);
     } catch (InstallException e) {
       logInfo("InstallException while install test apk on device [%s]", serial);
       e.printStackTrace(System.out);
-      return result.markInstallAsFailed(
-              "Unable to install instrumentation APK.").addException(e).build();
+      return result.markInstallAsFailed("Unable to install instrumentation APK.")
+          .addException(e)
+          .build();
     }
 
-    // If this is Android Marshmallow or above grant WRITE_EXTERNAL_STORAGE
-    if (deviceDetails.getApiLevel() >= DeviceDetails.MARSHMALLOW_API_LEVEL) {
-      String appPackage = instrumentationInfo.getApplicationPackage();
-      try {
-        CollectingOutputReceiver grantOutputReceiver = new CollectingOutputReceiver();
-        device.executeShellCommand(
-            "pm grant " + appPackage + " android.permission.READ_EXTERNAL_STORAGE",
-            grantOutputReceiver);
-        device.executeShellCommand(
-            "pm grant " + appPackage + " android.permission.WRITE_EXTERNAL_STORAGE",
-            grantOutputReceiver);
-      } catch (Exception e) {
-        logInfo("Exception while granting external storage access to application apk"
-            + "on device [%s]", serial);
-        e.printStackTrace(System.out);
-        return result.markInstallAsFailed(
-            "Unable to grant external storage access to application APK.").addException(e).build();
-      }
+    try {
+      cleanScreenshotsDirectoriesOnDevice(device);
+      cleanFilesDirectoriesOnDevice(device);
+    } catch (Exception e) {
+      logInfo("Exception while cleaning storage directories on device [%s]", serial);
+      e.printStackTrace(System.out);
+      return result.markInstallAsFailed(
+          "Unable to delete storage directories").addException(e).build();
+    }
+
+    try {
+      grantReadWriteExternalStorage(deviceDetails, device);
+    } catch (Exception e) {
+      logInfo("Exception while granting external storage access to application apk"
+              + "on device [%s]", serial);
+      e.printStackTrace(System.out);
+      return result.markInstallAsFailed(
+          "Unable to grant external storage access to application APK.").addException(e).build();
     }
 
     // Create the output directory, if it does not already exist.
     work.mkdirs();
 
+    // Determine the test set that is applicable for this device.
+    LogRecordingTestRunListener recorder;
+    List<TestIdentifier> activeTests;
+    List<TestIdentifier> ignoredTests;
+    try {
+      recorder = queryTestSet(testPackage, testRunner, device);
+      activeTests = recorder.activeTests();
+      ignoredTests = recorder.ignoredTests();
+      logDebug(debug, "Active tests: %s", activeTests);
+      logDebug(debug, "Ignored tests: %s", ignoredTests);
+    } catch (Exception e) {
+      return result
+          .addException(e)
+          .build();
+    }
+
     // Initiate device logging.
     SpoonDeviceLogger deviceLogger = new SpoonDeviceLogger(device);
 
-    // Run all the tests! o/
-    try {
-      logDebug(debug, "About to actually run tests for [%s]", serial);
-      RemoteAndroidTestRunner runner = new RemoteAndroidTestRunner(testPackage, testRunner, device);
-      runner.setMaxtimeToOutputResponse(adbTimeout);
-
-      if (instrumentationArgs != null && instrumentationArgs.size() > 0) {
-        for (String pair : instrumentationArgs) {
-          int firstEqualSignIndex = pair.indexOf("=");
-          if (firstEqualSignIndex <= -1) {
-            // No Equal Sign, can't process
-            logDebug(debug, "Can't process instrumentationArg [%s] (no equal sign)", pair);
-            continue;
-          }
-          String key = pair.substring(0, firstEqualSignIndex);
-          String value = pair.substring(firstEqualSignIndex + 1);
-          if (isNullOrEmpty(key) || isNullOrEmpty(value)) {
-            // Invalid values, skipping
-            logDebug(debug, "Can't process instrumentationArg [%s] (empty key or value)", pair);
-            continue;
-          }
-          runner.addInstrumentationArg(key, value);
-        }
-      }
-      if (codeCoverage) {
-        addCodeCoverageInstrumentationArgs(runner, device);
-      }
-      // Add the sharding instrumentation arguments if necessary
-      if (numShards != 0) {
-        addShardingInstrumentationArgs(runner);
-      }
-
-      if (!isNullOrEmpty(className)) {
-        if (isNullOrEmpty(methodName)) {
-          runner.setClassName(className);
-        } else {
-          runner.setMethodName(className, methodName);
-        }
-      }
-      if (testSize != null) {
-        runner.setTestSize(testSize);
-      }
-      List<ITestRunListener> listeners = new ArrayList<>();
-      listeners.add(new SpoonTestRunListener(result, debug, testIdentifierAdapter));
-      listeners.add(new XmlTestRunListener(junitReport));
-      if (testRunListeners != null) {
-        listeners.addAll(testRunListeners);
-      }
-      runner.run(listeners);
-    } catch (Exception e) {
-      result.addException(e);
+    List<ITestRunListener> listeners = new ArrayList<>();
+    listeners.add(new SpoonTestRunListener(result, debug));
+    listeners.add(new XmlTestRunListener(junitReport));
+    if (testRunListeners != null) {
+      listeners.addAll(testRunListeners);
     }
+
+    result.startTests();
+    if (singleInstrumentationCall) {
+      try {
+        logDebug(debug, "Running all tests in a single instrumentation call on [%s]", serial);
+        RemoteAndroidTestRunner runner = createConfiguredRunner(testPackage, testRunner, device);
+        runner.run(listeners);
+      } catch (Exception e) {
+        result.addException(e);
+      }
+    } else {
+      MultiRunITestListener multiRunListener = new MultiRunITestListener(listeners);
+      multiRunListener.multiRunStarted(recorder.runName(), recorder.testCount());
+
+      for (TestIdentifier test : activeTests) {
+        try {
+          logDebug(debug, "Running %s on [%s]", test, serial);
+          RemoteAndroidTestRunner runner = createConfiguredRunner(testPackage, testRunner, device);
+          runner.removeInstrumentationArg("package");
+          runner.removeInstrumentationArg("class");
+          runner.setMethodName(test.getClassName(), test.getTestName());
+          runner.run(listeners);
+
+          if (codeCoverage) { // pull coverage file for each test execution
+            pullCoverageFile(device, test.toString());
+          }
+
+        } catch (Exception e) {
+          result.addException(e);
+        }
+      }
+      for (TestIdentifier ignoredTest : ignoredTests) {
+        multiRunListener.testStarted(ignoredTest);
+        multiRunListener.testIgnored(ignoredTest);
+        multiRunListener.testEnded(ignoredTest, emptyMap());
+      }
+
+      multiRunListener.multiRunEnded();
+    }
+    result.endTests();
 
     mapLogsToTests(deviceLogger, result);
 
@@ -295,7 +275,11 @@ public final class SpoonDeviceRunner {
       logDebug(debug, "About to grab screenshots and prepare output for [%s]", serial);
       pullDeviceFiles(device);
       if (codeCoverage) {
-        pullCoverageFile(device);
+        if (singleInstrumentationCall) {
+          pullCoverageFile(device);
+        } else { // merge all coverage files generated from non single instrumentation calls
+          SpoonCoverageMerger.mergeAllCoverageFiles(coverageDir);
+        }
       }
 
       cleanScreenshotsDirectory(result);
@@ -305,8 +289,78 @@ public final class SpoonDeviceRunner {
       result.addException(e);
     }
     logDebug(debug, "Done running for [%s]", serial);
-
     return result.build();
+  }
+
+  private void grantReadWriteExternalStorage(DeviceDetails deviceDetails, IDevice device)
+      throws Exception {
+    // If this is Android Marshmallow or above grant WRITE_EXTERNAL_STORAGE
+    if (deviceDetails.getApiLevel() >= DeviceDetails.MARSHMALLOW_API_LEVEL) {
+      String appPackage = instrumentationInfo.getApplicationPackage();
+      CollectingOutputReceiver grantOutputReceiver = new CollectingOutputReceiver();
+      device.executeShellCommand(
+              "pm grant " + appPackage + " android.permission.READ_EXTERNAL_STORAGE",
+              grantOutputReceiver);
+      device.executeShellCommand(
+              "pm grant " + appPackage + " android.permission.WRITE_EXTERNAL_STORAGE",
+              grantOutputReceiver);
+    }
+  }
+
+  private LogRecordingTestRunListener queryTestSet(final String testPackage,
+      final String testRunner, final IDevice device) throws Exception {
+
+    LogRecordingTestRunListener recorder = new LogRecordingTestRunListener();
+    logDebug(debug, "Querying a list of tests on [%s]", serial);
+    RemoteAndroidTestRunner runner = createConfiguredRunner(testPackage, testRunner, device);
+    runner.addBooleanArg("log", true);
+    runner.run(recorder);
+    return recorder;
+  }
+
+  /**
+   * Create a configured Test Runner.
+   * This method adds sharding, class name, method name, test size and coverage, if available.
+   */
+  private RemoteAndroidTestRunner createConfiguredRunner(String testPackage, String testRunner,
+      IDevice device) throws Exception {
+
+    RemoteAndroidTestRunner runner = new SpoonAndroidTestRunner(
+            instrumentationInfo.getApplicationPackage(), testPackage, testRunner, device,
+            clearAppDataBeforeEachTest, debug);
+    runner.setMaxTimeToOutputResponse(adbTimeout.toMillis(), TimeUnit.MILLISECONDS);
+
+    for (Map.Entry<String, String> entry : instrumentationArgs.entrySet()) {
+      if (isNullOrEmpty(entry.getKey()) || isNullOrEmpty(entry.getValue())) {
+        // Invalid values, skipping
+        logDebug(debug, "Can't process instrumentationArg [%s] (empty key or value)",
+            entry.getKey() + "=>" + entry.getValue());
+        continue;
+      }
+      runner.addInstrumentationArg(entry.getKey(), entry.getValue());
+    }
+
+    if (numShards != 0) {
+      addShardingInstrumentationArgs(runner);
+    }
+
+    if (!isNullOrEmpty(className)) {
+      if (isNullOrEmpty(methodName)) {
+        runner.setClassName(className);
+      } else {
+        runner.setMethodName(className, methodName);
+      }
+    }
+
+    if (testSize != null) {
+      runner.setTestSize(testSize);
+    }
+
+    if (codeCoverage) {
+      addCodeCoverageInstrumentationArgs(runner, device);
+    }
+
+    return runner;
   }
 
   private void addCodeCoverageInstrumentationArgs(RemoteAndroidTestRunner runner, IDevice device)
@@ -340,8 +394,20 @@ public final class SpoonDeviceRunner {
   }
 
   private void pullCoverageFile(IDevice device) {
+    doPullCoverageFile(device, COVERAGE_FILE);
+  }
+
+  private void pullCoverageFile(IDevice device, String testIdentifier) {
+    doPullCoverageFile(device, testIdentifier + "_" + COVERAGE_FILE);
+  }
+
+  /**
+   * Pulls coverage file from device storage and saves it locally
+   */
+  private void doPullCoverageFile(IDevice device, String localFileName) {
     coverageDir.mkdirs();
-    File coverageFile = new File(coverageDir, COVERAGE_FILE);
+    File coverageFile = new File(coverageDir, localFileName);
+    logInfo("Pulling Code Coverage file %s", coverageFile.getAbsolutePath());
     String remotePath;
     try {
       remotePath = getExternalStoragePath(device, COVERAGE_FILE);
@@ -509,40 +575,36 @@ public final class SpoonDeviceRunner {
     }
   }
 
-  /////////////////////////////////////////////////////////////////////////////
-  ////  Secondary Per-Device Process  /////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////
+  private void cleanScreenshotsDirectoriesOnDevice(IDevice device) throws Exception {
+    FileEntry externalScreenShotDir = getDirectoryOnExternalStorage(device, DEVICE_SCREENSHOT_DIR);
+    cleanDirectoryOnDevice(externalScreenShotDir.getFullPath(), device);
 
-  /** De-serialize from disk, run the tests, and serialize the result back to disk. */
-  public static void main(String... args) {
-    if (args.length != 1) {
-      throw new IllegalArgumentException("Must be started with a device directory.");
+    FileEntry internalScreenShotDir = getDirectoryOnInternalStorage(DEVICE_SCREENSHOT_DIR);
+    cleanDirectoryOnDevice(internalScreenShotDir.getFullPath(), device);
+  }
+
+  private void cleanFilesDirectoriesOnDevice(IDevice device) throws Exception {
+    FileEntry externalFileDir = getDirectoryOnExternalStorage(device, DEVICE_FILE_DIR);
+    cleanDirectoryOnDevice(externalFileDir.getFullPath(), device);
+
+    FileEntry internalFileDir = getDirectoryOnInternalStorage(DEVICE_FILE_DIR);
+    cleanDirectoryOnDevice(internalFileDir.getFullPath(), device);
+  }
+
+  private void cleanDirectoryOnDevice(String fullPath, IDevice device) throws Exception {
+    CollectingOutputReceiver deleteDirOutputReceiver = new CollectingOutputReceiver();
+    device.executeShellCommand("rm -rf " + fullPath, deleteDirOutputReceiver);
+  }
+
+  /**
+   * @param deviceDetails details for current device
+   * @return optional argument for grantAll permissions, or empty string if not required
+   */
+  private String getGrantAllExtraArgument(DeviceDetails deviceDetails) {
+    String extraArgument = "";
+    if (grantAll && deviceDetails.getApiLevel() >= DeviceDetails.MARSHMALLOW_API_LEVEL) {
+      extraArgument = "-g";
     }
-
-    try {
-      String outputDirName = args[0];
-      File outputDir = new File(outputDirName);
-      File executionFile = new File(outputDir, FILE_EXECUTION);
-      if (!executionFile.exists()) {
-        throw new IllegalArgumentException("Device directory and/or execution file doesn't exist.");
-      }
-
-      FileReader reader = new FileReader(executionFile);
-      SpoonDeviceRunner target = GSON.fromJson(reader, SpoonDeviceRunner.class);
-      reader.close();
-
-      AndroidDebugBridge adb = SpoonUtils.initAdb(target.sdk, target.adbTimeout);
-      DeviceResult result = target.run(adb);
-      AndroidDebugBridge.terminate();
-
-      // Write device result file.
-      FileWriter writer = new FileWriter(new File(outputDir, FILE_RESULT));
-      GSON.toJson(result, writer);
-      writer.close();
-    } catch (Throwable ex) {
-      logInfo("ERROR: Unable to execute test for target.  Exception message: %s", ex.getMessage());
-      ex.printStackTrace(System.out);
-      System.exit(1);
-    }
+    return extraArgument;
   }
 }

@@ -25,7 +25,7 @@ final class HtmlTest {
       DeviceTestResult testResult = deviceResult.getTestResults().get(test);
       if (testResult != null) {
         deviceCount += 1;
-        if (testResult.getStatus() == Status.PASS) {
+        if (testResult.getStatus() != Status.FAIL) {
           testsPassed += 1;
           duration += testResult.getDuration();
         }
@@ -38,7 +38,7 @@ final class HtmlTest {
 
     int testsFailed = deviceCount - testsPassed;
     String totalDevices = deviceCount + " device" + (deviceCount != 1 ? "s" : "");
-    String title = HtmlUtils.prettifyMethodName(test.getMethodName());
+    String title = test.getMethodName();
 
     StringBuilder subtitle = new StringBuilder();
     subtitle.append("Ran on ")
